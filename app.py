@@ -1,29 +1,22 @@
 import streamlit as st
 import plotly.graph_objects as go
-import datetime
 
-# --- CONFIGURATION DE L'APPARENCE ---
+# --- CONFIGURATION ---
 st.set_page_config(page_title="HYBRIDE", layout="centered", page_icon="⚡")
 
-# --- STYLE PERSONNALISÉ ---
-st.markdown("""
-    <style>
-    .stProgress > div > div > div > div { background-color: #1E90FF; }
-    .main { background-color: #f8f9fa; }
-    </style>
-    """, unsafe_allow_html=True)
+# --- INITIALISATION DES DONNÉES ---
+if 'conso' not in st.session_state:
+    st.session_state.conso = 0
+if 'prot_consommees' not in st.session_state:
+    st.session_state.prot_consommees = 0
 
-# --- CALCULATEUR ÉNERGÉTIQUE (Formule Venesson / Mifflin-St Jeor) ---
+# --- CALCULATEUR ÉNERGÉTIQUE (Venesson / Mifflin-St Jeor) ---
 def calculer_besoins(sexe, poids, taille, age, activite, objectif):
-    # s = +5 pour les hommes, -161 pour les femmes
     s = 5 if sexe == "Homme" else -161
     mb = (10 * poids) + (6.25 * taille) - (5 * age) + s
+    f = {"Sédentaire": 1.2, "Léger": 1.375, "Modéré": 1.55, "Intense": 1.725, "Extrême": 1.9}
+    tdee = mb * f[activite]
     
-    # Facteurs d'activité
-    facteurs = {"Sédentaire": 1.2, "Léger": 1.375, "Modéré": 1.55, "Intense": 1.725, "Extrême": 1.9}
-    tdee = mb * facteurs[activite]
-    
-    # Ajustement objectif (Prise de masse / Maintien / Sèche)
     if objectif == "Prise de masse":
         cible = tdee + 300
     elif objectif == "Perte de gras":
@@ -32,19 +25,13 @@ def calculer_besoins(sexe, poids, taille, age, activite, objectif):
         cible = tdee
     return int(mb), int(cible)
 
-# --- INITIALISATION DES DONNÉES ---
-if 'conso' not in st.session_state:
-    st.session_state.conso = 0
-if 'prot' not in st.session_state:
-    st.session_state.prot = 0
-
-# --- BARRE LATÉRALE ---
+# --- NAVIGATION ---
 st.sidebar.title("⚡ HYBRIDE")
-menu = st.sidebar.radio("Navigation", ["🏠 Dashboard", "🥗 Nutrition & Masse", "⏳ Jeûne & Ramadan", "🏃 Running", "⚙️ Mon Profil"])
+menu = st.sidebar.radio("Navigation", ["🏠 Dashboard", "🥗 Nutrition & Masse", "⏳ Jeûne & Ramadan", "⚙️ Mon Profil"])
 
 # --- PAGE PROFIL ---
 if menu == "⚙️ Mon Profil":
-    st.header("⚙️ Configuration de l'Athlète")
+    st.header("⚙️ Ton Profil")
     col1, col2 = st.columns(2)
     with col1:
         sexe = st.radio("Sexe", ["Homme", "Femme"])
@@ -57,28 +44,60 @@ if menu == "⚙️ Mon Profil":
     
     mb, cible = calculer_besoins(sexe, poids, taille, age, activite, obj)
     st.session_state.cible_cal = cible
-    st.success(f"Métabolisme de Base : **{mb} kcal** | Cible Journalière : **{cible} kcal**")
+    st.session_state.poids_actuel = poids
+    st.success(f"Cible Journalière : **{cible} kcal**")
 
 # --- PAGE NUTRITION ---
 elif menu == "🥗 Nutrition & Masse":
     st.header("🥗 Suivi Nutrition")
-    cible = st.session_state.get('cible_cal', 2500)
-    conso = st.session_state.conso
     
-    # JAUGE STYLE YAZIO
+    # Récupération des objectifs
+    poids = st.session_state.get('poids_actuel', 75)
+    cible_cal = st.session_state.get('cible_cal', 2500)
+    cible_prot = int(poids * 2) # Formule : 2g par kg de poids
+    
+    conso_cal = st.session_state.conso
+    conso_prot = st.session_state.prot_consommees
+    
+    # JAUGE CALORIES
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
-        value = conso,
-        domain = {'x': [0, 1], 'y': [0, 1]},
+        value = conso_cal,
         gauge = {
-            'axis': {'range': [None, cible]},
+            'axis': {'range': [None, cible_cal]},
             'bar': {'color': "#1E90FF"},
-            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': cible}
-        }
+            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': cible_cal}
+        },
+        title = {'text': "Calories Journalières"}
     ))
-    fig.update_layout(height=350)
     st.plotly_chart(fig, use_container_width=True)
 
     # MACROS
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Protéines", f"{st.session_state.prot}
+    c1, c2 = st.columns(2)
+    c1.metric("Protéines", f"{conso_prot}g / {cible_prot}g")
+    c2.metric("Reste à manger", f"{cible_cal - conso_cal} kcal")
+
+    # AJOUT REPAS
+    with st.expander("➕ Ajouter un repas"):
+        cal = st.number_input("Calories", value=0)
+        p = st.number_input("Protéines (g)", value=0)
+        if st.button("Enregistrer"):
+            st.session_state.conso += cal
+            st.session_state.prot_consommees += p
+            st.rerun()
+
+# --- PAGE JEÛNE & RAMADAN ---
+elif menu == "⏳ Jeûne & Ramadan":
+    st.header("⏳ Jeûne")
+    mode = st.toggle("Mode Ramadan 🌙")
+    
+    if mode:
+        st.subheader("Planning Ramadan")
+        st.info("Imsak (Fajr) : 06:15 | Iftar (Maghrib) : 18:45")
+    else:
+        niv = st.select_slider("Protocole", ["Poussin (14:10)", "Loup (16:8)", "Guerrier (20:4)"])
+        st.write(f"Mode actuel : **{niv}**")
+
+else:
+    st.title("🏠 Dashboard")
+    st.write("Bienvenue sur Hybride. Utilise le menu pour naviguer.")
