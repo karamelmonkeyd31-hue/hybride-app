@@ -1,103 +1,95 @@
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
+from datetime import date, datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="HYBRIDE", layout="centered", page_icon="⚡")
+st.set_page_config(page_title="HYBRIDE ELITE", layout="centered", page_icon="⚡")
 
 # --- INITIALISATION DES DONNÉES ---
-if 'conso' not in st.session_state:
-    st.session_state.conso = 0
-if 'prot_consommees' not in st.session_state:
-    st.session_state.prot_consommees = 0
+if 'repas_data' not in st.session_state:
+    st.session_state.repas_data = {
+        'Petit-déjeuner': {'cal': 0, 'prot': 0},
+        'Déjeuner': {'cal': 0, 'prot': 0},
+        'Collation': {'cal': 0, 'prot': 0},
+        'Dîner': {'cal': 0, 'prot': 0}
+    }
 
-# --- CALCULATEUR ÉNERGÉTIQUE (Venesson / Mifflin-St Jeor) ---
-def calculer_besoins(sexe, poids, taille, age, activite, objectif):
-    s = 5 if sexe == "Homme" else -161
-    mb = (10 * poids) + (6.25 * taille) - (5 * age) + s
-    f = {"Sédentaire": 1.2, "Léger": 1.375, "Modéré": 1.55, "Intense": 1.725, "Extrême": 1.9}
-    tdee = mb * f[activite]
-    
-    if objectif == "Prise de masse":
-        cible = tdee + 300
-    elif objectif == "Perte de gras":
-        cible = tdee - 500
-    else:
-        cible = tdee
-    return int(mb), int(cible)
+# Simulation de données Strava (Distances et Allures sur 7 jours)
+data_strava = {
+    'Jour': ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+    'Distance': [5.2, 0, 8.5, 0, 6.1, 12.0, 0],
+    'Allure': [5.45, 0, 5.30, 0, 5.50, 5.20, 0] # en minutes par km
+}
+df = pd.DataFrame(data_strava)
 
-# --- NAVIGATION ---
+# --- MENU ---
 st.sidebar.title("⚡ HYBRIDE")
-menu = st.sidebar.radio("Navigation", ["🏠 Dashboard", "🥗 Nutrition & Masse", "⏳ Jeûne & Ramadan", "⚙️ Mon Profil"])
+menu = st.sidebar.radio("Navigation", ["🏠 Dashboard", "🥗 Nutrition", "🏃 Running & Strava", "⏳ Jeûne", "⚙️ Profil"])
 
-# --- PAGE PROFIL ---
-if menu == "⚙️ Mon Profil":
-    st.header("⚙️ Ton Profil")
-    col1, col2 = st.columns(2)
-    with col1:
-        sexe = st.radio("Sexe", ["Homme", "Femme"])
-        poids = st.number_input("Poids (kg)", value=75)
-        taille = st.number_input("Taille (cm)", value=175)
-    with col2:
-        age = st.number_input("Âge", value=25)
-        activite = st.selectbox("Niveau d'activité", ["Sédentaire", "Léger", "Modéré", "Intense", "Extrême"])
-        obj = st.selectbox("Objectif", ["Maintien", "Prise de masse", "Perte de gras"])
+# --- PAGE RUNNING (DASHBOARD COMPLET) ---
+if menu == "🏃 Running & Strava":
+    st.title("🏃 Dashboard Running")
     
-    mb, cible = calculer_besoins(sexe, poids, taille, age, activite, obj)
-    st.session_state.cible_cal = cible
-    st.session_state.poids_actuel = poids
-    st.success(f"Cible Journalière : **{cible} kcal**")
+    # Statistiques Globales
+    col1, col2, col3 = st.columns(3)
+    total_km = df['Distance'].sum()
+    allure_moy = df[df['Allure'] > 0]['Allure'].mean()
+    
+    col1.metric("Distance Totale", f"{total_km} km", "+2.4km")
+    col2.metric("Allure Moy.", f"{int(allure_moy)}' {int((allure_moy%1)*60)}''/km")
+    col3.metric("Séances", "4 cette semaine")
 
-# --- PAGE NUTRITION ---
-elif menu == "🥗 Nutrition & Masse":
-    st.header("🥗 Suivi Nutrition")
-    
-    # Récupération des objectifs
-    poids = st.session_state.get('poids_actuel', 75)
-    cible_cal = st.session_state.get('cible_cal', 2500)
-    cible_prot = int(poids * 2) # Formule : 2g par kg de poids
-    
-    conso_cal = st.session_state.conso
-    conso_prot = st.session_state.prot_consommees
-    
-    # JAUGE CALORIES
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = conso_cal,
-        gauge = {
-            'axis': {'range': [None, cible_cal]},
-            'bar': {'color': "#1E90FF"},
-            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': cible_cal}
-        },
-        title = {'text': "Calories Journalières"}
+    # GRAPHIQUE 1 : Volume de Distance (Bar Chart)
+    fig_dist = go.Figure()
+    fig_dist.add_trace(go.Bar(
+        x=df['Jour'], y=df['Distance'],
+        marker_color='#1E90FF',
+        name='Kilomètres'
     ))
-    st.plotly_chart(fig, use_container_width=True)
+    fig_dist.update_layout(title="Volume Hebdomadaire (km)", template="plotly_white", height=300)
+    st.plotly_chart(fig_dist, use_container_width=True)
 
-    # MACROS
-    c1, c2 = st.columns(2)
-    c1.metric("Protéines", f"{conso_prot}g / {cible_prot}g")
-    c2.metric("Reste à manger", f"{cible_cal - conso_cal} kcal")
+    # GRAPHIQUE 2 : Évolution Allure (Line Chart)
+    # On filtre les jours sans course pour le graphique de ligne
+    df_filtered = df[df['Allure'] > 0]
+    fig_pace = go.Figure()
+    fig_pace.add_trace(go.Scatter(
+        x=df_filtered['Jour'], y=df_filtered['Allure'],
+        mode='lines+markers', line=dict(color='#FF4B4B', width=3),
+        name='Allure'
+    ))
+    fig_pace.update_layout(title="Analyse de l'Allure (min/km)", yaxis=dict(autorange="reversed"), template="plotly_white", height=300)
+    st.plotly_chart(fig_pace, use_container_width=True)
 
-    # AJOUT REPAS
-    with st.expander("➕ Ajouter un repas"):
-        cal = st.number_input("Calories", value=0)
-        p = st.number_input("Protéines (g)", value=0)
-        if st.button("Enregistrer"):
-            st.session_state.conso += cal
-            st.session_state.prot_consommees += p
-            st.rerun()
+    # COACH IA
+    st.info("🤖 **Coach IA :** Ta sortie longue de samedi (12km) était excellente. Pour ta prise de masse, n'oublie pas de doubler ta portion de glucides ce soir pour recharger le glycogène.")
 
-# --- PAGE JEÛNE & RAMADAN ---
-elif menu == "⏳ Jeûne & Ramadan":
-    st.header("⏳ Jeûne")
-    mode = st.toggle("Mode Ramadan 🌙")
+# --- PAGE NUTRITION (TON YAZIO) ---
+elif menu == "🥗 Nutrition":
+    st.title("🥗 Nutrition & Masse")
+    # (On garde ici le code de la jauge que tu as déjà)
+    cible_cal = st.session_state.get('cible_cal', 2500)
+    total_cal = sum(item['cal'] for item in st.session_state.repas_data.values())
     
-    if mode:
-        st.subheader("Planning Ramadan")
-        st.info("Imsak (Fajr) : 06:15 | Iftar (Maghrib) : 18:45")
-    else:
-        niv = st.select_slider("Protocole", ["Poussin (14:10)", "Loup (16:8)", "Guerrier (20:4)"])
-        st.write(f"Mode actuel : **{niv}**")
+    fig_gauge = go.Figure(go.Indicator(
+        mode = "gauge+number", value = total_cal,
+        gauge = {'axis': {'range': [None, cible_cal]}, 'bar': {'color': "#1E90FF"}},
+        title = {'text': "Calories"}
+    ))
+    st.plotly_chart(fig_gauge)
 
+    # Gestion des 4 repas
+    for repas in st.session_state.repas_data.keys():
+        with st.expander(f"➕ {repas}"):
+            c1, c2 = st.columns(2)
+            cal = c1.number_input("Kcal", key=f"c_{repas}", step=50)
+            prot = c2.number_input("Prot (g)", key=f"p_{repas}", step=5)
+            if st.button(f"Enregistrer {repas}"):
+                st.session_state.repas_data[repas]['cal'] += cal
+                st.session_state.repas_data[repas]['prot'] += prot
+                st.rerun()
+
+# --- AUTRES PAGES ---
 else:
-    st.title("🏠 Dashboard")
-    st.write("Bienvenue sur Hybride. Utilise le menu pour naviguer.")
+    st.write("Navigue vers Running ou Nutrition pour voir tes graphes.")
